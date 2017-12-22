@@ -63,6 +63,8 @@
 #include <QtCore/QTranslator>
 #include <QtTest/QSignalSpy>
 
+#include <private/qqmlcomponent_p.h>
+
 #ifdef QT_QMLTEST_WITH_WIDGETS
 #include <QtWidgets/QApplication>
 #endif
@@ -87,7 +89,7 @@ public:
     static QTestRootObject *instance() {
         static QPointer<QTestRootObject> object = new QTestRootObject;
         if (!object) {
-            qWarning("A new test root object has been created, the behavior may be compromised");
+            // QTestRootObject was deleted when previous test ended, create a new one
             object = new QTestRootObject;
         }
         return object;
@@ -194,6 +196,133 @@ bool qWaitForSignal(QObject *obj, const char* signal, int timeout = 5000)
 
     return spy.size();
 }
+
+using namespace QV4::CompiledData;
+
+class TestCaseCollector
+{
+public:
+    typedef QList<QString> TestCaseList;
+
+    TestCaseCollector(const QFileInfo &fileInfo, QQmlEngine *engine)
+    {
+        QQmlComponent component(engine, fileInfo.absoluteFilePath());
+        m_errors += component.errors();
+
+        if (component.isReady()) {
+            CompilationUnit *rootCompilationUnit = QQmlComponentPrivate::get(&component)->compilationUnit;
+            TestCaseEnumerationResult result = enumerateTestCases(rootCompilationUnit);
+            m_testCases = result.testCases + result.finalizedPartialTestCases();
+            m_errors += result.errors;
+        }
+    }
+
+    TestCaseList testCases() const { return m_testCases; }
+    QList<QQmlError> errors() const { return m_errors; }
+
+private:
+    TestCaseList m_testCases;
+    QList<QQmlError> m_errors;
+
+    struct TestCaseEnumerationResult
+    {
+        TestCaseList testCases;
+        QList<QQmlError> errors;
+
+        // Partially constructed test cases
+        bool isTestCase = false;
+        TestCaseList testFunctions;
+        QString testCaseName;
+
+        TestCaseList finalizedPartialTestCases() const
+        {
+            TestCaseList result;
+            for (const QString &function : testFunctions)
+                result << QString(QStringLiteral("%1::%2")).arg(testCaseName).arg(function);
+            return result;
+        }
+
+        TestCaseEnumerationResult &operator<<(const TestCaseEnumerationResult &other)
+        {
+            testCases += other.testCases + other.finalizedPartialTestCases();
+            errors += other.errors;
+            return *this;
+        }
+    };
+
+    TestCaseEnumerationResult enumerateTestCases(CompilationUnit *compilationUnit, const Object *object = nullptr)
+    {
+        QQmlType testCaseType;
+        for (quint32 i = 0; i < compilationUnit->data->nImports; ++i) {
+            const Import *import = compilationUnit->data->importAt(i);
+            if (compilationUnit->stringAt(import->uriIndex) != QLatin1Literal("QtTest"))
+                continue;
+
+            QString testCaseTypeName(QStringLiteral("TestCase"));
+            QString typeQualifier = compilationUnit->stringAt(import->qualifierIndex);
+            if (!typeQualifier.isEmpty())
+                testCaseTypeName = typeQualifier % QLatin1Char('.') % testCaseTypeName;
+
+            testCaseType = compilationUnit->typeNameCache->query(testCaseTypeName).type;
+            if (testCaseType.isValid())
+                break;
+        }
+
+        TestCaseEnumerationResult result;
+
+        if (!object) // Start at root of compilation unit if not enumerating a specific child
+            object = compilationUnit->objectAt(0);
+
+        if (CompilationUnit *superTypeUnit = compilationUnit->resolvedTypes.value(object->inheritedTypeNameIndex)->compilationUnit) {
+            // We have a non-C++ super type, which could indicate we're a subtype of a TestCase
+            if (testCaseType.isValid() && superTypeUnit->url() == testCaseType.sourceUrl())
+                result.isTestCase = true;
+            else
+                result = enumerateTestCases(superTypeUnit);
+
+            if (result.isTestCase) {
+                // Look for override of name in this type
+                for (auto binding = object->bindingsBegin(); binding != object->bindingsEnd(); ++binding) {
+                    if (compilationUnit->stringAt(binding->propertyNameIndex) == QLatin1Literal("name")) {
+                        if (binding->type == QV4::CompiledData::Binding::Type_String) {
+                            result.testCaseName = compilationUnit->stringAt(binding->stringIndex);
+                        } else {
+                            QQmlError error;
+                            error.setUrl(compilationUnit->url());
+                            error.setLine(binding->location.line);
+                            error.setColumn(binding->location.column);
+                            error.setDescription(QStringLiteral("the 'name' property of a TestCase must be a literal string"));
+                            result.errors << error;
+                        }
+                        break;
+                    }
+                }
+
+                // Look for additional functions in this type
+                auto functionsEnd = compilationUnit->objectFunctionsEnd(object);
+                for (auto function = compilationUnit->objectFunctionsBegin(object); function != functionsEnd; ++function) {
+                    QString functionName = compilationUnit->stringAt(function->nameIndex);
+                    if (!(functionName.startsWith(QLatin1Literal("test_")) || functionName.startsWith(QLatin1Literal("benchmark_"))))
+                        continue;
+
+                    if (functionName.endsWith(QLatin1Literal("_data")))
+                        continue;
+
+                    result.testFunctions << functionName;
+                }
+            }
+        }
+
+        for (auto binding = object->bindingsBegin(); binding != object->bindingsEnd(); ++binding) {
+            if (binding->type == QV4::CompiledData::Binding::Type_Object) {
+                const Object *child = compilationUnit->objectAt(binding->value.objectIndex);
+                result << enumerateTestCases(compilationUnit, child);
+            }
+        }
+
+        return result;
+    }
+};
 
 int quick_test_main(int argc, char **argv, const char *name, const char *sourceDir)
 {
@@ -331,43 +460,64 @@ int quick_test_main(int argc, char **argv, const char *name, const char *sourceD
 
     // Register the test object
     qmlRegisterSingletonType<QTestRootObject>("Qt.test.qtestroot", 1, 0, "QTestRootObject", testRootObject);
+
     // Scan through all of the "tst_*.qml" files and run each of them
-    // in turn with a QQuickView.
-    QQuickView *view = new QQuickView;
-    view->setFlags(Qt::Window | Qt::WindowSystemMenuHint
-                         | Qt::WindowTitleHint | Qt::WindowMinMaxButtonsHint
-                         | Qt::WindowCloseButtonHint);
-    QEventLoop eventLoop;
-    QObject::connect(view->engine(), SIGNAL(quit()),
-                     QTestRootObject::instance(), SLOT(quit()));
-    QObject::connect(view->engine(), SIGNAL(quit()),
-                     &eventLoop, SLOT(quit()));
-    view->rootContext()->setContextProperty
-        (QLatin1String("qtest"), QTestRootObject::instance()); // Deprecated. Use QTestRootObject from Qt.test.qtestroot instead
-    for (const QString &path : qAsConst(imports))
-        view->engine()->addImportPath(path);
-    for (const QString &path : qAsConst(pluginPaths))
-        view->engine()->addPluginPath(path);
+    // in turn with a separate QQuickView (for test isolation).
     for (const QString &file : qAsConst(files)) {
         const QFileInfo fi(file);
         if (!fi.exists())
             continue;
 
-        view->setObjectName(fi.baseName());
-        view->setTitle(view->objectName());
+        QQmlEngine engine;
+        for (const QString &path : qAsConst(imports))
+            engine.addImportPath(path);
+        for (const QString &path : qAsConst(pluginPaths))
+            engine.addPluginPath(path);
+
+        TestCaseCollector testCaseCollector(fi, &engine);
+        if (!testCaseCollector.errors().isEmpty()) {
+            for (const QQmlError &error : testCaseCollector.errors())
+                qWarning() << error;
+            exit(1);
+        }
+
+        TestCaseCollector::TestCaseList availableTestFunctions = testCaseCollector.testCases();
+        if (QTest::printAvailableFunctions) {
+            for (const QString &function : availableTestFunctions)
+                qDebug("%s()", qPrintable(function));
+            continue;
+        }
+
+        static const QSet<QString> commandLineTestFunctions = QTest::testFunctions.toSet();
+        if (!commandLineTestFunctions.isEmpty() &&
+            !availableTestFunctions.toSet().intersects(commandLineTestFunctions))
+            continue;
+
+        QQuickView view(&engine, nullptr);
+        view.setFlags(Qt::Window | Qt::WindowSystemMenuHint
+                         | Qt::WindowTitleHint | Qt::WindowMinMaxButtonsHint
+                         | Qt::WindowCloseButtonHint);
+        QEventLoop eventLoop;
+        QObject::connect(view.engine(), SIGNAL(quit()),
+                         QTestRootObject::instance(), SLOT(quit()));
+        QObject::connect(view.engine(), SIGNAL(quit()),
+                         &eventLoop, SLOT(quit()));
+        view.rootContext()->setContextProperty
+            (QLatin1String("qtest"), QTestRootObject::instance()); // Deprecated. Use QTestRootObject from Qt.test.qtestroot instead
+
+        view.setObjectName(fi.baseName());
+        view.setTitle(view.objectName());
         QTestRootObject::instance()->init();
         QString path = fi.absoluteFilePath();
         if (path.startsWith(QLatin1String(":/")))
-            view->setSource(QUrl(QLatin1String("qrc:") + path.midRef(2)));
+            view.setSource(QUrl(QLatin1String("qrc:") + path.midRef(2)));
         else
-            view->setSource(QUrl::fromLocalFile(path));
+            view.setSource(QUrl::fromLocalFile(path));
 
-        if (QTest::printAvailableFunctions)
-            continue;
-        while (view->status() == QQuickView::Loading)
+        while (view.status() == QQuickView::Loading)
             QTest::qWait(10);
-        if (view->status() == QQuickView::Error) {
-            handleCompileErrors(fi, view);
+        if (view.status() == QQuickView::Error) {
+            handleCompileErrors(fi, &view);
             continue;
         }
         if (!QTestRootObject::instance()->hasQuit) {
@@ -376,21 +526,21 @@ int quick_test_main(int argc, char **argv, const char *name, const char *sourceD
             // an asynchronous test and we need to show the window
             // and wait for the first frame to be rendered
             // and then wait for quit indication.
-            view->setFramePosition(QPoint(50, 50));
-            if (view->size().isEmpty()) { // Avoid hangs with empty windows.
-                view->resize(200, 200);
+            view.setFramePosition(QPoint(50, 50));
+            if (view.size().isEmpty()) { // Avoid hangs with empty windows.
+                view.resize(200, 200);
             }
-            view->show();
-            if (!QTest::qWaitForWindowExposed(view)) {
+            view.show();
+            if (!QTest::qWaitForWindowExposed(&view)) {
                 qWarning().nospace()
                     << "Test '" << QDir::toNativeSeparators(path) << "' window not exposed after show().";
             }
-            view->requestActivate();
-            if (!QTest::qWaitForWindowActive(view)) {
+            view.requestActivate();
+            if (!QTest::qWaitForWindowActive(&view)) {
                 qWarning().nospace()
                     << "Test '" << QDir::toNativeSeparators(path) << "' window not active after requestActivate().";
             }
-            if (view->isExposed()) {
+            if (view.isExposed()) {
                 QTestRootObject::instance()->setWindowShown(true);
             } else {
                 qWarning().nospace()
@@ -399,13 +549,11 @@ int quick_test_main(int argc, char **argv, const char *name, const char *sourceD
             }
             if (!QTestRootObject::instance()->hasQuit && QTestRootObject::instance()->hasTestCase())
                 eventLoop.exec();
-            // view->hide(); Causes a crash in Qt 3D due to deletion of the GL context, see QTBUG-27696
         }
     }
 
     // Flush the current logging stream.
     QuickTestResult::setProgramName(0);
-    delete view;
     delete app;
 
     // Return the number of failures as the exit code.

@@ -53,12 +53,12 @@
 
 #include "qquickitem.h"
 #include "qevent.h"
-#include "qquickmultipointerhandler_p.h"
+#include "qquickmultipointhandler_p.h"
 #include <private/qquicktranslate_p.h>
 
 QT_BEGIN_NAMESPACE
 
-class Q_AUTOTEST_EXPORT QQuickPinchHandler : public QQuickMultiPointerHandler
+class Q_AUTOTEST_EXPORT QQuickPinchHandler : public QQuickMultiPointHandler
 {
     Q_OBJECT
     Q_PROPERTY(qreal minimumScale READ minimumScale WRITE setMinimumScale NOTIFY minimumScaleChanged)
@@ -70,7 +70,7 @@ class Q_AUTOTEST_EXPORT QQuickPinchHandler : public QQuickMultiPointerHandler
     Q_PROPERTY(QVector2D centroidVelocity READ centroidVelocity NOTIFY updated)
     Q_PROPERTY(qreal scale READ scale NOTIFY updated)
     Q_PROPERTY(qreal rotation READ rotation NOTIFY updated)
-    Q_PROPERTY(QPointF translation READ translation NOTIFY updated)
+    Q_PROPERTY(QVector2D translation READ translation NOTIFY updated)
     Q_PROPERTY(qreal minimumX READ minimumX WRITE setMinimumX NOTIFY minimumXChanged)
     Q_PROPERTY(qreal maximumX READ maximumX WRITE setMaximumX NOTIFY maximumXChanged)
     Q_PROPERTY(qreal minimumY READ minimumY WRITE setMinimumY NOTIFY minimumYChanged)
@@ -100,7 +100,7 @@ public:
     PinchOrigin pinchOrigin() const { return m_pinchOrigin; }
     void setPinchOrigin(PinchOrigin pinchOrigin);
 
-    QPointF translation() const { return m_activeTranslation; }
+    QVector2D translation() const { return m_activeTranslation; }
     qreal scale() const { return m_activeScale; }
     qreal rotation() const { return m_activeRotation; }
     QPointF centroid() const { return m_centroid; }
@@ -116,7 +116,6 @@ public:
     void setMaximumY(qreal maxY);
 
 signals:
-    void requiredPointCountChanged();
     void minimumScaleChanged();
     void maximumScaleChanged();
     void minimumRotationChanged();
@@ -129,6 +128,7 @@ signals:
     void updated();
 
 protected:
+    bool wantsPointerEvent(QQuickPointerEvent *event) override;
     void onActiveChanged() override;
     void handlePointerEventImpl(QQuickPointerEvent *event) override;
 
@@ -136,7 +136,7 @@ private:
     // properties
     qreal m_activeScale;
     qreal m_activeRotation;
-    QPointF m_activeTranslation;
+    QVector2D m_activeTranslation;
     QPointF m_centroid;
     QVector2D m_centroidVelocity;
 

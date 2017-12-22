@@ -97,7 +97,7 @@ void tst_DragHandler::defaultPropertyValues()
     QVERIFY(dragHandler);
 
     QCOMPARE(dragHandler->acceptedButtons(), Qt::LeftButton);
-    QCOMPARE(dragHandler->translation(), QPointF());
+    QCOMPARE(dragHandler->translation(), QVector2D());
     QCOMPARE(dragHandler->point().position(), QPointF());
     QCOMPARE(dragHandler->point().scenePosition(), QPointF());
     QCOMPARE(dragHandler->point().pressPosition(), QPointF());
@@ -314,11 +314,10 @@ void tst_DragHandler::touchDragMultiSliders_data()
         0 << QVector<int> { 0, 1, 2 } << QVector<int> { 0, 0, 0 } << QVector<QVector2D> { {0, 60}, {0, 60}, {0, 60} };
     QTest::newRow("Drag Knob: start on the knobs, drag diagonally downward") <<
         0 << QVector<int> { 0, 1, 2 } << QVector<int> { 0, 0, 0 } << QVector<QVector2D> { {20, 40}, {20, 60}, {20, 80} };
-    // TOOD these fail
-//    QTest::newRow("Drag Anywhere: start on the knobs, drag down") <<
-//        1 << QVector<int> { 0, 1, 2 } << QVector<int> { 0, 0, 0 } << QVector<QVector2D> { {0, 60}, {0, 60}, {0, 60} };
-//    QTest::newRow("Drag Anywhere: start on the knobs, drag diagonally downward") <<
-//        1 << QVector<int> { 0, 1, 2 } << QVector<int> { 0, 0, 0 } << QVector<QVector2D> { {20, 40}, {20, 60}, {20, 80} };
+    QTest::newRow("Drag Anywhere: start on the knobs, drag down") <<
+        1 << QVector<int> { 0, 1, 2 } << QVector<int> { 0, 0, 0 } << QVector<QVector2D> { {0, 60}, {0, 60}, {0, 60} };
+    QTest::newRow("Drag Anywhere: start on the knobs, drag diagonally downward") <<
+        1 << QVector<int> { 0, 1, 2 } << QVector<int> { 0, 0, 0 } << QVector<QVector2D> { {20, 40}, {20, 60}, {20, 80} };
     // TODO these next two fail because the DragHandler grabs when a finger
     // drags across it from outside, but should rather start only if it is pressed inside
 //    QTest::newRow("Drag Knob: start above the knobs, drag down") <<

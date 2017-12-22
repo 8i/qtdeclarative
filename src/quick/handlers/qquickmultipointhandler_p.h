@@ -57,24 +57,29 @@
 
 QT_BEGIN_NAMESPACE
 
-class Q_AUTOTEST_EXPORT QQuickMultiPointerHandler : public QQuickPointerDeviceHandler
+class Q_AUTOTEST_EXPORT QQuickMultiPointHandler : public QQuickPointerDeviceHandler
 {
     Q_OBJECT
-    Q_PROPERTY(int requiredPointCount READ requiredPointCount WRITE setRequiredPointCount NOTIFY requiredPointCountChanged)
+    Q_PROPERTY(int minimumPointCount READ minimumPointCount WRITE setMinimumPointCount NOTIFY minimumPointCountChanged)
+    Q_PROPERTY(int maximumPointCount READ maximumPointCount WRITE setMaximumPointCount NOTIFY maximumPointCountChanged)
     Q_PROPERTY(qreal pointDistanceThreshold READ pointDistanceThreshold WRITE setPointDistanceThreshold NOTIFY pointDistanceThresholdChanged)
 
 public:
-    explicit QQuickMultiPointerHandler(QObject *parent = 0, int requiredPointCount = 2);
-    ~QQuickMultiPointerHandler();
+    explicit QQuickMultiPointHandler(QObject *parent = 0, int minimumPointCount = 2);
+    ~QQuickMultiPointHandler();
 
-    int requiredPointCount() const { return m_requiredPointCount; }
-    void setRequiredPointCount(int c);
+    int minimumPointCount() const { return m_minimumPointCount; }
+    void setMinimumPointCount(int c);
+
+    int maximumPointCount() const { return m_maximumPointCount >= 0 ? m_maximumPointCount : m_minimumPointCount; }
+    void setMaximumPointCount(int maximumPointCount);
 
     qreal pointDistanceThreshold() const { return m_pointDistanceThreshold; }
     void setPointDistanceThreshold(qreal pointDistanceThreshold);
 
 signals:
-    void requiredPointCountChanged();
+    void minimumPointCountChanged();
+    void maximumPointCountChanged();
     void pointDistanceThresholdChanged();
 
 protected:
@@ -101,12 +106,13 @@ protected:
 
 protected:
     QVector<QQuickEventPoint *> m_currentPoints;
-    int m_requiredPointCount;
+    int m_minimumPointCount;
+    int m_maximumPointCount;
     qreal m_pointDistanceThreshold;
 };
 
 QT_END_NAMESPACE
 
-QML_DECLARE_TYPE(QQuickMultiPointerHandler)
+QML_DECLARE_TYPE(QQuickMultiPointHandler)
 
 #endif // QQUICKPOINTERMULTIHANDLER_H

@@ -279,6 +279,8 @@ public:
 
     QQuickItemLayer *layer() const;
 
+    bool hasPointerHandlers() const;
+
     // data property
     static void data_append(QQmlListProperty<QObject> *, QObject *);
     static int data_count(QQmlListProperty<QObject> *);
@@ -564,6 +566,7 @@ public:
     virtual void transformChanged();
 
     void deliverKeyEvent(QKeyEvent *);
+    bool filterKeyEvent(QKeyEvent *, bool post);
 #if QT_CONFIG(im)
     void deliverInputMethodEvent(QInputMethodEvent *);
 #endif

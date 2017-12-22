@@ -84,6 +84,7 @@ class QQmlComponentPrivate;
 class QQmlTypeData;
 class QQmlTypeLoader;
 class QQmlExtensionInterface;
+class QQmlProfiler;
 struct QQmlCompileError;
 
 namespace QmlIR {
@@ -97,6 +98,7 @@ public:
         Null,                    // Prior to QQmlTypeLoader::load()
         Loading,                 // Prior to data being received and dataReceived() being called
         WaitingForDependencies,  // While there are outstanding addDependency()s
+        ResolvingDependencies,   // While resolving outstanding dependencies, to detect cycles
         Complete,                // Finished
         Error                    // Error
     };
@@ -248,7 +250,7 @@ private:
     QString m_location;
 };
 
-class Q_AUTOTEST_EXPORT QQmlTypeLoader
+class Q_QML_PRIVATE_EXPORT QQmlTypeLoader
 {
     Q_DECLARE_TR_FUNCTIONS(QQmlTypeLoader)
 public:
@@ -320,6 +322,15 @@ public:
     void initializeEngine(QQmlExtensionInterface *, const char *);
     void invalidate();
 
+#ifdef QT_NO_QML_DEBUGGER
+    quintptr profiler() const { return 0; }
+    void setProfiler(quintptr) {}
+#else
+    QQmlProfiler *profiler() const { return m_profiler.data(); }
+    void setProfiler(QQmlProfiler *profiler);
+#endif // QT_NO_QML_DEBUGGER
+
+
 private:
     friend class QQmlDataBlob;
     friend class QQmlTypeLoaderThread;
@@ -368,6 +379,11 @@ private:
 
     QQmlEngine *m_engine;
     QQmlTypeLoaderThread *m_thread;
+
+#ifndef QT_NO_QML_DEBUGGER
+    QScopedPointer<QQmlProfiler> m_profiler;
+#endif
+
 #if QT_CONFIG(qml_network)
     NetworkReplies m_networkReplies;
 #endif
@@ -459,7 +475,10 @@ private:
                  const QV4::CompiledData::ResolvedTypeReferenceMap &resolvedTypeCache, const QV4::CompiledData::DependentTypesHasher &dependencyHasher);
     void createTypeAndPropertyCaches(const QQmlRefPointer<QQmlTypeNameCache> &typeNameCache,
                                       const QV4::CompiledData::ResolvedTypeReferenceMap &resolvedTypeCache);
-    bool resolveType(const QString &typeName, int &majorVersion, int &minorVersion, TypeReference &ref, int lineNumber = -1, int columnNumber = -1, bool reportErrors = true);
+    bool resolveType(const QString &typeName, int &majorVersion, int &minorVersion,
+                     TypeReference &ref, int lineNumber = -1, int columnNumber = -1,
+                     bool reportErrors = true,
+                     QQmlType::RegistrationType registrationType = QQmlType::AnyRegistrationType);
 
     void scriptImported(QQmlScriptBlob *blob, const QV4::CompiledData::Location &location, const QString &qualifier, const QString &nameSpace) override;
 

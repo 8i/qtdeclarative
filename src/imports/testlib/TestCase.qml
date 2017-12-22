@@ -39,7 +39,7 @@
 
 import QtQuick 2.0
 import QtQuick.Window 2.0 // used for qtest_verifyItem
-import QtTest 1.1
+import QtTest 1.2
 import "testlogger.js" as TestLogger
 import Qt.test.qtestroot 1.0
 
@@ -50,14 +50,14 @@ import Qt.test.qtestroot 1.0
     \since 4.8
     \ingroup qtquicktest
 
-    \section1 Introduction to QML test cases
+    \section1 Introduction to QML Test Cases
 
     Test cases are written as JavaScript functions within a TestCase
     type:
 
     \code
     import QtQuick 2.0
-    import QtTest 1.0
+    import QtTest 1.2
 
     TestCase {
         name: "MathTests"
@@ -99,7 +99,7 @@ import Qt.test.qtestroot 1.0
     once they have all completed.  If a test case doesn't need to run
     (because a precondition has failed), then \l optional can be set to true.
 
-    \section1 Data-driven tests
+    \section1 Data-driven Tests
 
     Table data can be provided to a test using a function name that ends
     with "_data". Alternatively, the \c init_data() function can be used
@@ -108,7 +108,7 @@ import Qt.test.qtestroot 1.0
 
     \code
     import QtQuick 2.0
-    import QtTest 1.1
+    import QtTest 1.2
 
     TestCase {
         name: "DataTests"
@@ -173,7 +173,7 @@ import Qt.test.qtestroot 1.0
     To get the effect of the \c{QBENCHMARK_ONCE} macro, prefix the test
     function name with "benchmark_once_".
 
-    \section1 Simulating keyboard and mouse events
+    \section1 Simulating Keyboard and Mouse Events
 
     The keyPress(), keyRelease(), and keyClick() methods can be used
     to simulate keyboard events within unit tests.  The events are
@@ -1212,6 +1212,26 @@ Item {
     }
 
     /*!
+        \since 5.10
+        \qmlmethod TestCase::keySequence(keySequence)
+
+        Simulates typing of \a keySequence. The key sequence can be set
+        to one of the \l{QKeySequence::StandardKey}{standard keyboard shortcuts}, or
+        it can be described with a string containing a sequence of up to four key
+        presses.
+
+        Each event shall be sent to the TestCase window or, in case of multiple windows,
+        to the current active window. See \l QGuiApplication::focusWindow() for more details.
+
+        \sa keyPress(), keyRelease(), {GNU Emacs Style Key Sequences},
+        {QtQuick::Shortcut::sequence}{Shortcut.sequence}
+    */
+    function keySequence(keySequence) {
+        if (!qtest_events.keySequence(keySequence))
+            qtest_fail("window not shown", 2)
+    }
+
+    /*!
         \qmlmethod TestCase::mousePress(item, x = item.width / 2, y = item.height / 2, button = Qt.LeftButton, modifiers = Qt.NoModifier, delay = -1)
 
         Simulates pressing a mouse \a button with an optional \a modifier
@@ -1739,11 +1759,6 @@ Item {
 
     /*! \internal */
     function qtest_run() {
-        if (util.printAvailableFunctions) {
-            completed = true
-            return
-        }
-
         if (TestLogger.log_start_test()) {
             qtest_results.reset()
             qtest_results.testCaseName = name
@@ -1894,29 +1909,9 @@ Item {
         }
     }
 
-
     Component.onCompleted: {
         QTestRootObject.hasTestCase = true;
         qtest_componentCompleted = true;
-
-        if (util.printAvailableFunctions) {
-            var testList = []
-            for (var prop in testCase) {
-                if (prop.indexOf("test_") != 0 && prop.indexOf("benchmark_") != 0)
-                    continue
-                var tail = prop.lastIndexOf("_data");
-                if (tail != -1 && tail == (prop.length - 5))
-                    continue
-                // Note: cannot run functions in TestCase elements
-                // that lack a name.
-                if (name.length > 0)
-                    testList.push(name + "::" + prop + "()")
-            }
-            testList.sort()
-            for (var index in testList)
-                console.log(testList[index])
-            return
-        }
         qtest_testId = TestLogger.log_register_test(name)
         if (optional)
             TestLogger.log_optional_test(qtest_testId)

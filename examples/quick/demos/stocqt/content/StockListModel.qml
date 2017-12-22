@@ -1,12 +1,22 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Copyright (C) 2017 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the examples of the Qt Toolkit.
 **
 ** $QT_BEGIN_LICENSE:BSD$
-** You may use this file under the terms of the BSD license as follows:
+** Commercial License Usage
+** Licensees holding valid commercial Qt licenses may use this file in
+** accordance with the commercial license agreement provided with the
+** Software or, alternatively, in accordance with the terms contained in
+** a written agreement between you and The Qt Company. For licensing terms
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
+**
+** BSD License Usage
+** Alternatively, you may use this file under the terms of the BSD license
+** as follows:
 **
 ** "Redistribution and use in source and binary forms, with or without
 ** modification, are permitted provided that the following conditions are
@@ -37,9 +47,8 @@
 ** $QT_END_LICENSE$
 **
 ****************************************************************************/
-
 import QtQuick 2.0
-
+import "stocqt.js" as JSLibrary
 ListModel {
     id: stocks
 
@@ -50,28 +59,13 @@ ListModel {
         }
     }
 
-    function requestUrl(stockId) {
-        var endDate = new Date(""); // today
-        var startDate = new Date()
-        startDate.setDate(startDate.getDate() - 5);
-
-        var request = "http://ichart.finance.yahoo.com/table.csv?";
-        request += "s=" + stockId;
-        request += "&g=d";
-        request += "&a=" + startDate.getMonth();
-        request += "&b=" + startDate.getDate();
-        request += "&c=" + startDate.getFullYear();
-        request += "&d=" + endDate.getMonth();
-        request += "&e=" + endDate.getDate();
-        request += "&f=" + endDate.getFullYear();
-        request += "&g=d";
-        request += "&ignore=.csv";
-        return request;
-    }
-
     function getCloseValue(index) {
-        var req = requestUrl(get(index).stockId);
 
+        var endDate = new Date(); // today
+        var startDate = new Date();
+        startDate.setDate(endDate.getDate() - 7);
+
+        var req = JSLibrary.requestUrl(get(index).stockId, startDate, endDate);
         if (!req)
             return;
 
@@ -87,12 +81,14 @@ ListModel {
                 if (records.length > 0 && xhr.status == 200) {
                     var r = records[1].split(',');
                     var today = parseFloat(r[4]);
+
                     if (!isNaN(today))
                         setProperty(index, "value", today.toFixed(2));
                     if (records.length > 2) {
                         r = records[2].split(',');
                         var yesterday = parseFloat(r[4]);
                         var change = today - yesterday;
+
                         if (change >= 0.0)
                             setProperty(index, "change", "+" + change.toFixed(2));
                         else

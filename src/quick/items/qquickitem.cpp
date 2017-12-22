@@ -122,6 +122,7 @@ void debugFocusTree(QQuickItem *item, QQuickItem *scope = 0, int depth = 1)
     \li \l Rotation
     \li \l Scale
     \li \l Translate
+    \li \l Matrix4x4
     \endlist
 
     The Transform types let you create and control advanced transformations that can be configured
@@ -3252,7 +3253,7 @@ void QQuickItemPrivate::data_append(QQmlListProperty<QObject> *prop, QObject *o)
             // because there can be multiple handlers...
             that->setAcceptedMouseButtons(Qt::AllButtons);
             QQuickItemPrivate *p = QQuickItemPrivate::get(that);
-            p->extra.value().pointerHandlers.append(pointerHandler);
+            p->extra.value().pointerHandlers.prepend(pointerHandler);
         } else {
             QQuickWindow *thisWindow = qmlobject_cast<QQuickWindow *>(o);
             QQuickItem *item = that;
@@ -5029,22 +5030,31 @@ void QQuickItemPrivate::transformChanged()
 #endif
 }
 
+bool QQuickItemPrivate::filterKeyEvent(QKeyEvent *e, bool post)
+{
+    if (!extra.isAllocated() || !extra->keyHandler)
+        return false;
+
+    if (post)
+        e->accept();
+
+    if (e->type() == QEvent::KeyPress)
+        extra->keyHandler->keyPressed(e, post);
+    else
+        extra->keyHandler->keyReleased(e, post);
+
+    return e->isAccepted();
+}
+
 void QQuickItemPrivate::deliverKeyEvent(QKeyEvent *e)
 {
     Q_Q(QQuickItem);
 
     Q_ASSERT(e->isAccepted());
-    if (extra.isAllocated() && extra->keyHandler) {
-        if (e->type() == QEvent::KeyPress)
-            extra->keyHandler->keyPressed(e, false);
-        else
-            extra->keyHandler->keyReleased(e, false);
-
-        if (e->isAccepted())
-            return;
-        else
-            e->accept();
-    }
+    if (filterKeyEvent(e, false))
+        return;
+    else
+        e->accept();
 
     if (e->type() == QEvent::KeyPress)
         q->keyPressEvent(e);
@@ -5054,16 +5064,7 @@ void QQuickItemPrivate::deliverKeyEvent(QKeyEvent *e)
     if (e->isAccepted())
         return;
 
-    if (extra.isAllocated() && extra->keyHandler) {
-        e->accept();
-
-        if (e->type() == QEvent::KeyPress)
-            extra->keyHandler->keyPressed(e, true);
-        else
-            extra->keyHandler->keyReleased(e, true);
-    }
-
-    if (e->isAccepted() || !q->window())
+    if (filterKeyEvent(e, true) || !q->window())
         return;
 
     //only care about KeyPress now
@@ -5832,7 +5833,7 @@ void QQuickItem::setVisible(bool v)
     are returned to \c true, unless they have explicitly been set to \c false.
 
     Setting this property to \c false automatically causes \l activeFocus to be
-    set to \c false, and this item will longer receive keyboard events.
+    set to \c false, and this item will no longer receive keyboard events.
 
     \sa visible
 */
@@ -7970,6 +7971,11 @@ QQuickItemLayer *QQuickItemPrivate::layer() const
 #else
     return 0;
 #endif
+}
+
+bool QQuickItemPrivate::hasPointerHandlers() const
+{
+    return extra.isAllocated() && !extra->pointerHandlers.isEmpty();
 }
 
 #if QT_CONFIG(quick_shadereffect)

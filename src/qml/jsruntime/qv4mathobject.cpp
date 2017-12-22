@@ -46,6 +46,7 @@
 #include <QtCore/private/qnumeric_p.h>
 #include <QtCore/qthreadstorage.h>
 
+#include <math.h>
 #include <cmath>
 
 using namespace QV4;
@@ -274,7 +275,7 @@ void MathObject::method_pow(const BuiltinFunction *, Scope &scope, CallData *cal
 
 void MathObject::method_random(const BuiltinFunction *, Scope &scope, CallData *)
 {
-    RETURN_RESULT(Encode(QRandomGenerator::getReal()));
+    RETURN_RESULT(Encode(QRandomGenerator::global()->generateDouble()));
 }
 
 void MathObject::method_round(const BuiltinFunction *, Scope &scope, CallData *callData)

@@ -46,11 +46,29 @@ QT_BEGIN_NAMESPACE
 /*!
     \qmltype DragHandler
     \instantiates QQuickDragHandler
-    \inqmlmodule QtQuick
+    \inherits SinglePointHandler
+    \inqmlmodule Qt.labs.handlers
     \ingroup qtquick-handlers
     \brief Handler for dragging
 
     DragHandler is a handler that is used to interactively move an Item.
+    Like other Pointer Handlers, by default it is fully functional, and
+    manipulates its \l target.
+
+    \snippet pointerHandlers/dragHandler.qml 0
+
+    It has properties to restrict the range of dragging.
+
+    If it is declared within one Item but is assigned a different \l target,
+    then it handles events within the bounds of the \l parent Item but
+    manipulates the \c target Item instead:
+
+    \snippet pointerHandlers/dragHandlerDifferentTarget.qml 0
+
+    A third way to use it is to set \l target to \c null and react to property
+    changes in some other way:
+
+    \snippet pointerHandlers/dragHandlerNullTarget.qml 0
 
     At this time, drag-and-drop is not yet supported.
 
@@ -58,7 +76,7 @@ QT_BEGIN_NAMESPACE
 */
 
 QQuickDragHandler::QQuickDragHandler(QObject *parent)
-    : QQuickPointerSingleHandler(parent)
+    : QQuickSinglePointHandler(parent)
 {
 }
 
@@ -70,16 +88,17 @@ bool QQuickDragHandler::wantsEventPoint(QQuickEventPoint *point)
 {
     // If we've already been interested in a point, stay interested, even if it has strayed outside bounds.
     return ((point->state() != QQuickEventPoint::Pressed && this->point().id() == point->pointId())
-            || QQuickPointerSingleHandler::wantsEventPoint(point));
+            || QQuickSinglePointHandler::wantsEventPoint(point));
 }
 
 void QQuickDragHandler::onGrabChanged(QQuickPointerHandler *grabber, QQuickEventPoint::GrabState stateChange, QQuickEventPoint *point)
 {
-    if (grabber == this && stateChange == QQuickEventPoint::GrabExclusive)
-        // In case the grab got handled over from another grabber, we might not get the Press
+    if (grabber == this && stateChange == QQuickEventPoint::GrabExclusive && m_targetStartPos.isNull())
+        // In case the grab got handled over from another grabber, we might not get the Press.
+        // Therefore, prefer the m_targetStartPos we got when it got Pressed.
         initializeTargetStartPos(point);
     enforceConstraints();
-    QQuickPointerSingleHandler::onGrabChanged(grabber, stateChange, point);
+    QQuickSinglePointHandler::onGrabChanged(grabber, stateChange, point);
 }
 
 void QQuickDragHandler::onActiveChanged()
@@ -97,13 +116,13 @@ void QQuickDragHandler::handleEventPoint(QQuickEventPoint *point)
         setPassiveGrab(point);
         break;
     case QQuickEventPoint::Updated: {
-        QPointF delta = point->scenePos() - point->scenePressPos();
+        QPointF delta = point->scenePosition() - point->scenePressPosition();
         if (!m_xAxis.enabled())
             delta.setX(0);
         if (!m_yAxis.enabled())
             delta.setY(0);
         if (active()) {
-            setTranslation(delta);
+            setTranslation(QVector2D(delta));
             if (target() && target()->parentItem()) {
                 QPointF pos = target()->parentItem()->mapFromScene(m_targetStartPos + delta);
                 enforceAxisConstraints(&pos);
@@ -149,12 +168,12 @@ void QQuickDragHandler::enforceAxisConstraints(QPointF *localPos)
 
 void QQuickDragHandler::initializeTargetStartPos(QQuickEventPoint *point)
 {
-    if (target() && target()->parentItem() && m_targetStartPos.isNull()) {    // prefer the m_targetStartPos we got when it got Pressed.
+    if (target() && target()->parentItem()) {
         m_targetStartPos = target()->parentItem()->mapToScene(target()->position());
-        if (!target()->contains(point->pos())) {
+        if (!target()->contains(point->position())) {
             // If pressed outside of target item, move the target item so that the touchpoint is in its center,
             // while still respecting the axis constraints.
-            const QPointF center = target()->parentItem()->mapFromScene(point->scenePos());
+            const QPointF center = target()->parentItem()->mapFromScene(point->scenePosition());
             const QPointF pointCenteredInItemPos = target()->parentItem()->mapToScene(center - QPointF(target()->width(), target()->height())/2);
             if (m_xAxis.enabled())
                 m_targetStartPos.setX(pointCenteredInItemPos.x());
@@ -164,7 +183,7 @@ void QQuickDragHandler::initializeTargetStartPos(QQuickEventPoint *point)
     }
 }
 
-void QQuickDragHandler::setTranslation(const QPointF &trans)
+void QQuickDragHandler::setTranslation(const QVector2D &trans)
 {
     if (trans == m_translation) // fuzzy compare?
         return;
@@ -172,7 +191,25 @@ void QQuickDragHandler::setTranslation(const QPointF &trans)
     emit translationChanged();
 }
 
+/*!
+    \qmlpropertygroup QtQuick::DragHandler::xAxis
+    \qmlpropertygroup QtQuick::DragHandler::yAxis
+    \qmlproperty real QtQuick::DragHandler::DragAxis::minimum
+    \qmlproperty real QtQuick::DragHandler::DragAxis::maximum
+    \qmlproperty real QtQuick::DragHandler::DragAxis::enabled
 
+    \c xAxis and yAxis control the constraints for horizontal and vertical
+    dragging, respectively.
+
+    \value minimum
+        The minimum acceptable value of \l {Item::x}{x} or \l {Item::y}{y}
+        to be applied to the \l target
+    \value maximum
+        The maximum acceptable value of \l {Item::x}{x} or \l {Item::y}{y}
+        to be applied to the \l target
+    \value enabled
+        Whether dragging in this direction is allowed at all
+*/
 QQuickDragAxis::QQuickDragAxis()
   : m_minimum(-DBL_MAX)
   , m_maximum(DBL_MAX)
@@ -206,5 +243,12 @@ void QQuickDragAxis::setEnabled(bool enabled)
     m_enabled = enabled;
     emit enabledChanged();
 }
+
+/*!
+    \readonly
+    \qmlproperty QVector2D QtQuick::DragHandler::translation
+
+    The translation since the gesture began.
+*/
 
 QT_END_NAMESPACE

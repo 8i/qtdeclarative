@@ -54,6 +54,7 @@ int QQuickTapHandler::m_touchMultiTapDistanceSquared(-1);
 /*!
     \qmltype TapHandler
     \instantiates QQuickTapHandler
+    \inherits SinglePointHandler
     \inqmlmodule Qt.labs.handlers
     \ingroup qtquick-handlers
     \brief Handler for taps and clicks.
@@ -78,7 +79,7 @@ int QQuickTapHandler::m_touchMultiTapDistanceSquared(-1);
 */
 
 QQuickTapHandler::QQuickTapHandler(QObject *parent)
-    : QQuickPointerSingleHandler(parent)
+    : QQuickSinglePointHandler(parent)
     , m_pressed(false)
     , m_gesturePolicy(ReleaseWithinBounds)
     , m_tapCount(0)
@@ -102,7 +103,7 @@ QQuickTapHandler::~QQuickTapHandler()
 
 static bool dragOverThreshold(QQuickEventPoint *point)
 {
-    QPointF delta = point->scenePos() - point->scenePressPos();
+    QPointF delta = point->scenePosition() - point->scenePressPosition();
     return (QQuickWindowPrivate::dragOverThreshold(delta.x(), Qt::XAxis, point) ||
             QQuickWindowPrivate::dragOverThreshold(delta.y(), Qt::YAxis, point));
 }
@@ -280,17 +281,17 @@ void QQuickTapHandler::setPressed(bool press, bool cancel, QQuickEventPoint *poi
                 // Assuming here that pointerEvent()->timestamp() is in ms.
                 qreal ts = point->pointerEvent()->timestamp() / 1000.0;
                 if (ts - m_lastTapTimestamp < m_multiTapInterval &&
-                        QVector2D(point->scenePos() - m_lastTapPos).lengthSquared() <
+                        QVector2D(point->scenePosition() - m_lastTapPos).lengthSquared() <
                         (point->pointerEvent()->device()->type() == QQuickPointerDevice::Mouse ?
                          m_mouseMultiClickDistanceSquared : m_touchMultiTapDistanceSquared))
                     ++m_tapCount;
                 else
                     m_tapCount = 1;
                 qCDebug(lcTapHandler) << objectName() << "tapped" << m_tapCount << "times";
-                emit tapped(point);
+                emit tapped();
                 emit tapCountChanged();
                 m_lastTapTimestamp = ts;
-                m_lastTapPos = point->scenePos();
+                m_lastTapPos = point->scenePosition();
             } else {
                 qCDebug(lcTapHandler) << objectName() << "tap threshold" << longPressThreshold() << "exceeded:" << point->timeHeld();
             }
@@ -300,12 +301,14 @@ void QQuickTapHandler::setPressed(bool press, bool cancel, QQuickEventPoint *poi
             // on release, ungrab after emitting changed signals
             setExclusiveGrab(point, press);
         }
+        if (cancel)
+            emit canceled(point);
     }
 }
 
 void QQuickTapHandler::onGrabChanged(QQuickPointerHandler *grabber, QQuickEventPoint::GrabState stateChange, QQuickEventPoint *point)
 {
-    QQuickPointerSingleHandler::onGrabChanged(grabber, stateChange, point);
+    QQuickSinglePointHandler::onGrabChanged(grabber, stateChange, point);
     bool isCanceled = stateChange == QQuickEventPoint::CancelGrabExclusive || stateChange == QQuickEventPoint::CancelGrabPassive;
     if (grabber == this && (isCanceled || point->state() == QQuickEventPoint::Released))
         setPressed(false, isCanceled, point);
@@ -326,6 +329,7 @@ void QQuickTapHandler::updateTimeHeld()
 
 /*!
     \qmlproperty int TapHandler::tapCount
+    \readonly
 
     The number of taps which have occurred within the time and space
     constraints to be considered a single gesture.  For example, to detect
@@ -345,6 +349,7 @@ void QQuickTapHandler::updateTimeHeld()
 
 /*!
     \qmlproperty real TapHandler::timeHeld
+    \readonly
 
     The amount of time in seconds that a pressed point has been held, without
     moving beyond the drag threshold. It will be updated at least once per

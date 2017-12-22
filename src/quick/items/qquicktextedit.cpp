@@ -368,6 +368,23 @@ QString QQuickTextEdit::text() const
 */
 
 /*!
+    \qmlproperty bool QtQuick::TextEdit::font.preferShaping
+    \since 5.10
+
+    Sometimes, a font will apply complex rules to a set of characters in order to
+    display them correctly. In some writing systems, such as Brahmic scripts, this is
+    required in order for the text to be legible, but in e.g. Latin script, it is merely
+    a cosmetic feature. Setting the \c preferShaping property to false will disable all
+    such features when they are not required, which will improve performance in most cases.
+
+    The default value is true.
+
+    \qml
+    TextEdit { text: "Some text"; font.preferShaping: false }
+    \endqml
+*/
+
+/*!
     \qmlproperty string QtQuick::TextEdit::text
 
     The text to display.  If the text format is AutoText the text edit will
@@ -2494,7 +2511,7 @@ void QQuickTextEdit::updateSize()
 
     if (d->isImplicitResizeEnabled()) {
         // ### Setting the implicitWidth triggers another updateSize(), and unless there are bindings nothing has changed.
-        if (!widthValid() && !d->requireImplicitWidth)
+        if (!widthValid())
             setImplicitSize(newWidth + leftPadding() + rightPadding(), newHeight + topPadding() + bottomPadding());
         else
             setImplicitHeight(newHeight + topPadding() + bottomPadding());

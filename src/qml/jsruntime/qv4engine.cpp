@@ -142,10 +142,6 @@ ExecutionEngine::ExecutionEngine(EvalISelFactory *factory)
     , m_engineId(engineSerial.fetchAndAddOrdered(1))
     , regExpCache(0)
     , m_multiplyWrappedQObjects(0)
-#ifndef QT_NO_QML_DEBUGGER
-    , m_debugger(0)
-    , m_profiler(0)
-#endif
 {
     memoryManager = new QV4::MemoryManager(this);
 
@@ -501,21 +497,13 @@ ExecutionEngine::ExecutionEngine(EvalISelFactory *factory)
 
 ExecutionEngine::~ExecutionEngine()
 {
-#ifndef QT_NO_QML_DEBUGGER
-    delete m_debugger;
-    m_debugger = 0;
-    delete m_profiler;
-    m_profiler = 0;
-#endif
     delete m_multiplyWrappedQObjects;
     m_multiplyWrappedQObjects = 0;
     delete identifierTable;
     delete memoryManager;
 
-    QSet<QV4::CompiledData::CompilationUnit*> remainingUnits;
-    qSwap(compilationUnits, remainingUnits);
-    for (QV4::CompiledData::CompilationUnit *unit : qAsConst(remainingUnits))
-        unit->unlink();
+    while (!compilationUnits.isEmpty())
+        (*compilationUnits.begin())->unlink();
 
     internalClasses[Class_Empty]->destroy();
     delete classPool;
@@ -534,13 +522,13 @@ ExecutionEngine::~ExecutionEngine()
 void ExecutionEngine::setDebugger(Debugging::Debugger *debugger)
 {
     Q_ASSERT(!m_debugger);
-    m_debugger = debugger;
+    m_debugger.reset(debugger);
 }
 
 void ExecutionEngine::setProfiler(Profiling::Profiler *profiler)
 {
     Q_ASSERT(!m_profiler);
-    m_profiler = profiler;
+    m_profiler.reset(profiler);
 }
 #endif // QT_NO_QML_DEBUGGER
 
@@ -698,21 +686,17 @@ Heap::DateObject *ExecutionEngine::newDateObjectFromTime(const QTime &t)
 Heap::RegExpObject *ExecutionEngine::newRegExpObject(const QString &pattern, int flags)
 {
     bool global = (flags & IR::RegExp::RegExp_Global);
-    bool ignoreCase = false;
-    bool multiline = false;
-    if (flags & IR::RegExp::RegExp_IgnoreCase)
-        ignoreCase = true;
-    if (flags & IR::RegExp::RegExp_Multiline)
-        multiline = true;
+    bool ignoreCase = (flags & IR::RegExp::RegExp_IgnoreCase);
+    bool multiline = (flags & IR::RegExp::RegExp_Multiline);
 
     Scope scope(this);
-    Scoped<RegExp> re(scope, RegExp::create(this, pattern, ignoreCase, multiline));
-    return newRegExpObject(re, global);
+    Scoped<RegExp> re(scope, RegExp::create(this, pattern, ignoreCase, multiline, global));
+    return newRegExpObject(re);
 }
 
-Heap::RegExpObject *ExecutionEngine::newRegExpObject(RegExp *re, bool global)
+Heap::RegExpObject *ExecutionEngine::newRegExpObject(RegExp *re)
 {
-    return memoryManager->allocObject<RegExpObject>(re, global);
+    return memoryManager->allocObject<RegExpObject>(re);
 }
 
 Heap::RegExpObject *ExecutionEngine::newRegExpObject(const QRegExp &re)
@@ -982,10 +966,12 @@ void ExecutionEngine::markObjects(MarkStack *markStack)
     }
 
     classPool->markObjects(markStack);
+    markStack->drain();
 
-    for (QSet<CompiledData::CompilationUnit*>::ConstIterator it = compilationUnits.constBegin(), end = compilationUnits.constEnd();
-         it != end; ++it)
-        (*it)->markObjects(markStack);
+    for (auto compilationUnit: compilationUnits) {
+        compilationUnit->markObjects(markStack);
+        markStack->drain();
+    }
 }
 
 ReturnedValue ExecutionEngine::throwError(const Value &value)
